@@ -142,7 +142,7 @@ def geneval_sd3():
 
     config.train.batch_size = config.sample.train_batch_size
     config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch//2
-    config.train.num_inner_epochs = 1
+    config.train.num_inner_epochs = 16
     config.train.timestep_fraction = 0.99
     config.train.beta = 0.04
     config.sample.global_std = True
@@ -674,7 +674,7 @@ def counting_flux_kontext():
     config.train.num_inner_epochs = 1
     config.train.timestep_fraction = 0.99
     config.train.beta = 0
-    config.sample.global_std = True
+    config.sample.global_std = False
     config.sample.same_latent = False
     config.train.ema = True
     config.sample.noise_level = 0.9
@@ -687,6 +687,51 @@ def counting_flux_kontext():
         "geneval": 0.5,
     }
     config.per_prompt_stat_tracking = True
+    return config
+
+def matting_flux_kontext_full_safe():
+    config = counting_flux_kontext()
+    config.dataset = "/nvmedata/workspace2/users/rzc/flow_grpo/dataset/e2p_matting_grpo_new"
+    config.pretrained.model = "/nvmedata/workspace2/share_model/FLUX.1-Kontext-dev"
+    # config.train.lora_path = "/nvmedata/workspace2/users/rzc/output/e2p_step178000_peft"
+    config.train.lora_path = "/nvmedata/workspace2/users/rzc/output/flow_grpo_matting_full_main_sad5/checkpoints/checkpoint-336/lora"
+
+    config.resolution = 512
+    config.sample.num_steps = 8
+    config.sample.eval_num_steps = 1
+    
+    config.sample.guidance_scale = 1.0
+    config.sample.eval_guidance_scale = 1.0
+    config.condition_on_trimap = True
+
+    config.sample.train_batch_size = 16
+    config.sample.num_image_per_prompt = 16
+    config.sample.num_batches_per_epoch = 8
+    config.sample.test_batch_size = 2
+    config.sample.noise_level = 0.2  # 或 0.2
+
+    config.train.batch_size = config.sample.train_batch_size
+    config.train.gradient_accumulation_steps = 1
+    config.train.num_inner_epochs = 1
+    config.train.beta = 0.0
+    config.train.use_8bit_adam = True
+    config.train.ema = True
+
+    config.activation_checkpointing = True
+    config.train.learning_rate = 1e-6
+    config.train.clip_range = 1e-4
+
+    config.eval_at_start = False
+    config.save_at_start = False
+    config.max_epochs = 50
+    config.eval_freq = 2
+    config.save_freq = 2
+
+    config.debug_save_images = True
+    config.debug_max_images = 16
+
+    config.save_dir = "/nvmedata/workspace2/users/rzc/output/flow_grpo_matting_full_main_sad6"
+    config.reward_fn = {"matting": 1.0}
     return config
 
 def pickscore_qwenimage():

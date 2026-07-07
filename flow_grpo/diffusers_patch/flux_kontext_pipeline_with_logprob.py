@@ -55,6 +55,81 @@ def calculate_shift(
     mu = image_seq_len * m + b
     return mu
 
+def _is_multi_condition_image(image):
+    return isinstance(image, dict) and "multi_condition_images" in image
+
+def _flatten_multi_condition_images(image):
+    condition_groups = image["multi_condition_images"]
+    if not condition_groups:
+        raise ValueError("multi_condition_images must contain at least one sample.")
+
+    num_conditions = len(condition_groups[0])
+    if num_conditions == 0:
+        raise ValueError("Each multi_condition_images sample must contain at least one condition image.")
+
+    flat_images = []
+    for sample_idx, group in enumerate(condition_groups):
+        if len(group) != num_conditions:
+            raise ValueError(
+                "All samples must provide the same number of condition images; "
+                f"sample 0 has {num_conditions}, sample {sample_idx} has {len(group)}."
+            )
+        flat_images.extend(group)
+    return flat_images, num_conditions
+
+def _prepare_multi_condition_latents(
+    self,
+    image,
+    num_conditions,
+    batch_size,
+    num_channels_latents,
+    height,
+    width,
+    dtype,
+    device,
+    generator,
+    latents,
+):
+    first_condition = image[::num_conditions]
+    latents, _, latent_ids, image_ids = self.prepare_latents(
+        first_condition.float(),
+        batch_size,
+        num_channels_latents,
+        height,
+        width,
+        dtype,
+        device,
+        generator,
+        latents,
+    )
+
+    if image.shape[0] != batch_size * num_conditions:
+        raise ValueError(
+            "multi_condition_images batch size mismatch: expected "
+            f"{batch_size * num_conditions} flattened images, got {image.shape[0]}."
+        )
+
+    image = image.to(device=device, dtype=dtype)
+    image_latents = self._encode_vae_image(image=image, generator=None)
+    image_latent_height, image_latent_width = image_latents.shape[2:]
+    image_latents = self._pack_latents(
+        image_latents,
+        batch_size * num_conditions,
+        num_channels_latents,
+        image_latent_height,
+        image_latent_width,
+    )
+    image_latents = image_latents.reshape(
+        batch_size,
+        num_conditions * image_latents.shape[1],
+        image_latents.shape[2],
+    )
+
+    if image_ids is not None:
+        image_ids = torch.cat([image_ids.clone() for _ in range(num_conditions)], dim=0)
+
+    return latents, image_latents, latent_ids, image_ids
+
 @torch.no_grad()
 def pipeline_with_logprob(
     self,
@@ -150,22 +225,43 @@ def pipeline_with_logprob(
     )
 
     # 3. Preprocess image
-    if image is not None and not (isinstance(image, torch.Tensor) and image.size(1) == self.latent_channels):
+    num_condition_images = 1
+    if _is_multi_condition_image(image):
+        image, num_condition_images = _flatten_multi_condition_images(image)
+        image = self.image_processor.resize(image, height, width)
+        image = self.image_processor.preprocess(image, height, width)
+    elif image is not None and not (isinstance(image, torch.Tensor) and image.size(1) == self.latent_channels):
         image = self.image_processor.resize(image, height, width)
         image = self.image_processor.preprocess(image, height, width)
     # 4. Prepare latent variables
     num_channels_latents = self.transformer.config.in_channels // 4
-    latents, image_latents, latent_ids, image_ids = self.prepare_latents(
-        image.float(),
-        batch_size * num_images_per_prompt,
-        num_channels_latents,
-        height,
-        width,
-        prompt_embeds.dtype,
-        device,
-        generator,
-        latents,
-    )
+    effective_batch_size = batch_size * num_images_per_prompt
+    if num_condition_images > 1:
+        latents, image_latents, latent_ids, image_ids = _prepare_multi_condition_latents(
+            self,
+            image,
+            num_condition_images,
+            effective_batch_size,
+            num_channels_latents,
+            height,
+            width,
+            prompt_embeds.dtype,
+            device,
+            generator,
+            latents,
+        )
+    else:
+        latents, image_latents, latent_ids, image_ids = self.prepare_latents(
+            image.float(),
+            effective_batch_size,
+            num_channels_latents,
+            height,
+            width,
+            prompt_embeds.dtype,
+            device,
+            generator,
+            latents,
+        )
     if image_ids is not None:
         latent_ids = torch.cat([latent_ids, image_ids], dim=0)  # dim 0 is sequence dimension
     sigmas = np.linspace(1.0, 1 / num_inference_steps, num_inference_steps) if sigmas is None else sigmas
