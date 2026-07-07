@@ -135,3 +135,75 @@ config.save_dir/
 ├── reward_history.jsonl
 └── debug_images/
 ```
+
+## Matting Evaluation
+
+Use `matting_eval/` to evaluate Flow-GRPO checkpoints with the E2P/matting inference code. Flow-GRPO saves PEFT LoRA weights, so each checkpoint must first be converted to the E2P LoRA format before inference.
+
+Expected Flow-GRPO checkpoint layout:
+
+```text
+config.save_dir/
+└── checkpoints/
+    ├── checkpoint-100/
+    │   └── lora/
+    │       └── adapter_model.safetensors
+    └── checkpoint-200/
+        └── lora/
+            └── adapter_model.safetensors
+```
+
+Batch evaluation:
+
+```bash
+cd /path/to/grpo
+
+CHECKPOINT_DIR=/path/to/grpo/output/checkpoints \
+MATTING_REPO=/path/to/matting \
+MODEL_ROOT=/path/to/FLUX.1-Kontext-dev \
+GT_ROOT=/path/to/P3M-10k \
+FILE_LIST=/path/to/matting/data_split/P3M_matting/filenames_val_NP.txt \
+OUTPUT_DIR=/path/to/eval_outputs \
+DEVICE=cuda:0 \
+DATASET_NAME=p3m-np \
+LORA_RANK=64 \
+bash matting_eval/run_all_checkpoints.sh
+```
+
+For each checkpoint, `run_all_checkpoints.sh` runs:
+
+```text
+1. matting_eval/convert_flux_peft_lora_to_e2p.py
+2. matting_eval/batch_inference.py
+3. python -m utils.eval_matting
+```
+
+Single-checkpoint evaluation:
+
+```bash
+cd /path/to/grpo
+
+python matting_eval/convert_flux_peft_lora_to_e2p.py \
+  --input /path/to/checkpoint-100/lora \
+  --output /path/to/checkpoint-100/e2p_fused_lora.safetensors \
+  --rank 64
+
+MATTING_REPO=/path/to/matting python matting_eval/batch_inference.py \
+  --lora_path /path/to/checkpoint-100/e2p_fused_lora.safetensors \
+  --out_root /path/to/eval_outputs/predictions_p3m-np_100 \
+  --model_root /path/to/FLUX.1-Kontext-dev \
+  --gt_root /path/to/P3M-10k \
+  --file_list /path/to/matting/data_split/P3M_matting/filenames_val_NP.txt \
+  --device cuda:0
+
+PYTHONPATH=/path/to/matting python -m utils.eval_matting \
+  --pred_path /path/to/eval_outputs/predictions_p3m-np_100 \
+  --gt_path /path/to/P3M-10k \
+  --dataset p3m-np
+```
+
+Batch evaluation results are appended to:
+
+```text
+OUTPUT_DIR/evaluation_all_checkpoints.txt
+```
