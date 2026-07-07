@@ -138,7 +138,7 @@ config.save_dir/
 
 ## Matting Evaluation
 
-Use `matting_eval/` to evaluate Flow-GRPO checkpoints with the E2P/matting inference code. Flow-GRPO saves PEFT LoRA weights, so each checkpoint must first be converted to the E2P LoRA format before inference.
+This repository includes a bundled `matting/` directory for E2P-style matting inference and evaluation. Use it to evaluate Flow-GRPO checkpoints. Flow-GRPO saves PEFT LoRA weights, so each checkpoint must first be converted to the E2P LoRA format before inference.
 
 Expected Flow-GRPO checkpoint layout:
 
@@ -156,47 +156,46 @@ config.save_dir/
 Batch evaluation:
 
 ```bash
-cd /path/to/grpo
+cd /path/to/grpo/matting
 
 CHECKPOINT_DIR=/path/to/grpo/output/checkpoints \
-MATTING_REPO=/path/to/matting \
 MODEL_ROOT=/path/to/FLUX.1-Kontext-dev \
 GT_ROOT=/path/to/P3M-10k \
-FILE_LIST=/path/to/matting/data_split/P3M_matting/filenames_val_NP.txt \
+FILE_LIST=./data_split/P3M_matting/filenames_val_NP.txt \
 OUTPUT_DIR=/path/to/eval_outputs \
 DEVICE=cuda:0 \
 DATASET_NAME=p3m-np \
 LORA_RANK=64 \
-bash matting_eval/run_all_checkpoints.sh
+bash run_all_checkpoints.sh
 ```
 
 For each checkpoint, `run_all_checkpoints.sh` runs:
 
 ```text
-1. matting_eval/convert_flux_peft_lora_to_e2p.py
-2. matting_eval/batch_inference.py
+1. convert_flux_peft_lora_to_e2p.py
+2. batch_inference.py
 3. python -m utils.eval_matting
 ```
 
 Single-checkpoint evaluation:
 
 ```bash
-cd /path/to/grpo
+cd /path/to/grpo/matting
 
-python matting_eval/convert_flux_peft_lora_to_e2p.py \
+python convert_flux_peft_lora_to_e2p.py \
   --input /path/to/checkpoint-100/lora \
   --output /path/to/checkpoint-100/e2p_fused_lora.safetensors \
   --rank 64
 
-MATTING_REPO=/path/to/matting python matting_eval/batch_inference.py \
+python batch_inference.py \
   --lora_path /path/to/checkpoint-100/e2p_fused_lora.safetensors \
   --out_root /path/to/eval_outputs/predictions_p3m-np_100 \
   --model_root /path/to/FLUX.1-Kontext-dev \
   --gt_root /path/to/P3M-10k \
-  --file_list /path/to/matting/data_split/P3M_matting/filenames_val_NP.txt \
+  --file_list ./data_split/P3M_matting/filenames_val_NP.txt \
   --device cuda:0
 
-PYTHONPATH=/path/to/matting python -m utils.eval_matting \
+python -m utils.eval_matting \
   --pred_path /path/to/eval_outputs/predictions_p3m-np_100 \
   --gt_path /path/to/P3M-10k \
   --dataset p3m-np
